@@ -8,9 +8,15 @@ auto-detects that stride from the ratio of total poses to total frames, or
 accepts a manual override via --step.  The result is written as a JSON mapping
 file consumed by reconstruct_3d.py.
 
+By default the stride is rounded to the nearest integer and poses are snapped.
+With --interpolate the exact fractional stride is used and each frame's pose is
+SLERP'd between the two bracketing recorded poses.  This removes the drift that
+accumulates when the true stride (e.g. 9.0057) is not a whole number.
+
 Usage:
     ./match_poses.py poses.json --scene western-flying
     ./match_poses.py poses.json --scene western-flying --step 9
+    ./match_poses.py poses.json --scene western-flying --interpolate
 """
 
 import json
@@ -46,11 +52,63 @@ def detect_step(num_poses: int, num_frames: int) -> int:
     return step
 
 
+def slerp(q0: np.ndarray, q1: np.ndarray, t: float) -> np.ndarray:
+    """
+    Spherical linear interpolation between unit quaternions q0 and q1.
+    Both are [x, y, z, w] arrays.  t=0 returns q0, t=1 returns q1.
+    """
+    dot = float(np.dot(q0, q1))
+    # Choose the shorter arc
+    if dot < 0.0:
+        q1 = -q1
+        dot = -dot
+    dot = min(dot, 1.0)
+    # Fall back to linear interpolation for nearly-parallel quaternions
+    if dot > 0.9995:
+        q = q0 + t * (q1 - q0)
+        return q / np.linalg.norm(q)
+    theta0 = np.arccos(dot)
+    theta  = theta0 * t
+    sin_theta0 = np.sin(theta0)
+    s0 = np.cos(theta) - dot * np.sin(theta) / sin_theta0
+    s1 = np.sin(theta) / sin_theta0
+    return s0 * q0 + s1 * q1
+
+
+def interpolate_pose(poses: list[dict], t: float) -> tuple[dict, dict]:
+    """
+    Return (position, rotation) for fractional pose index t, SLERP'd between
+    the two bracketing recorded poses.
+    """
+    i0 = min(int(t), len(poses) - 2)
+    i1 = i0 + 1
+    frac = t - i0
+
+    p0, p1 = poses[i0], poses[i1]
+
+    # Linear interpolation for translation
+    position = {
+        'x': p0['translation']['x'] + frac * (p1['translation']['x'] - p0['translation']['x']),
+        'y': p0['translation']['y'] + frac * (p1['translation']['y'] - p0['translation']['y']),
+        'z': p0['translation']['z'] + frac * (p1['translation']['z'] - p0['translation']['z']),
+    }
+
+    # SLERP for rotation
+    r0 = p0['rotation']
+    r1 = p1['rotation']
+    q0 = np.array([r0['x'], r0['y'], r0['z'], r0['w']], dtype=np.float64)
+    q1 = np.array([r1['x'], r1['y'], r1['z'], r1['w']], dtype=np.float64)
+    q = slerp(q0 / np.linalg.norm(q0), q1 / np.linalg.norm(q1), frac)
+    rotation = {'x': float(q[0]), 'y': float(q[1]), 'z': float(q[2]), 'w': float(q[3])}
+
+    return position, rotation
+
+
 def build_mapping(poses: list[dict],
                   metadata: dict[int, dict],
                   step: int) -> list[dict]:
     """
-    Build the canonical frame→pose mapping.
+    Build the frame→pose mapping by snapping to the nearest integer pose index.
 
     Frame index is 1-based (matches filenames like 00001-*.png).
     Pose index is 0-based into the poses list: pose_idx = (frame_idx - 1) * step.
@@ -63,12 +121,41 @@ def build_mapping(poses: list[dict],
         pose = poses[pose_idx]
         meta = metadata[frame_idx]
         mapping.append({
-            'frame_index': frame_idx,         # 1-based, matches filename
-            'pose_index': pose_idx,            # 0-based index into poses array
-            'int_sample': meta.get('intSample'),
-            'fov_deg': meta.get('fltFov', 90.0),
-            'position': pose['translation'],   # {x, y, z} in cm
-            'rotation': pose['rotation'],      # {x, y, z, w} quaternion
+            'frame_index': frame_idx,
+            'pose_index':  pose_idx,
+            'int_sample':  meta.get('intSample'),
+            'fov_deg':     meta.get('fltFov', 90.0),
+            'position':    pose['translation'],
+            'rotation':    pose['rotation'],
+        })
+    return mapping
+
+
+def build_mapping_interpolated(poses: list[dict],
+                               metadata: dict[int, dict],
+                               exact_step: float) -> list[dict]:
+    """
+    Build the frame→pose mapping using SLERP at the fractional pose index.
+
+    Uses the exact (non-rounded) step so accumulated drift across the sequence
+    is eliminated.  The stored pose_index is the floor of the fractional index.
+    """
+    mapping = []
+    for frame_idx in sorted(metadata.keys()):
+        t = (frame_idx - 1) * exact_step
+        i0 = min(int(t), len(poses) - 2)
+        if i0 >= len(poses):
+            continue
+        meta = metadata[frame_idx]
+        position, rotation = interpolate_pose(poses, t)
+        mapping.append({
+            'frame_index': frame_idx,
+            'pose_index':  i0,          # floor; fractional part was SLERP'd
+            'pose_t':      round(t, 6), # exact fractional index (for reference)
+            'int_sample':  meta.get('intSample'),
+            'fov_deg':     meta.get('fltFov', 90.0),
+            'position':    position,
+            'rotation':    rotation,
         })
     return mapping
 
@@ -86,6 +173,9 @@ def main():
                         help='Output mapping JSON (default: <scene>-mapping.json)')
     parser.add_argument('--step', type=int, default=None,
                         help='Override auto-detected subsampling step')
+    parser.add_argument('--interpolate', action='store_true',
+                        help='SLERP between poses using the exact fractional step '
+                             'instead of snapping to the nearest integer index')
     parser.add_argument('--quiet', '-q', action='store_true',
                         help='Suppress analysis output')
 
@@ -102,14 +192,21 @@ def main():
     num_frames = len(metadata)
     print(f"Found {num_frames} frames in {rgb_dir}")
 
+    exact_step = len(poses) / num_frames
+
     if args.step is not None:
         step = args.step
-        print(f"Using manual subsampling step: every {step}th pose")
+        print(f"Using manual subsampling step: {step} (exact ratio: {exact_step:.5f})")
     else:
         step = detect_step(len(poses), num_frames)
-        print(f"Detected subsampling step: every {step}th pose")
+        print(f"Detected subsampling step: {step} (exact ratio: {exact_step:.5f})")
 
-    mapping = build_mapping(poses, metadata, step)
+    if args.interpolate:
+        print(f"Mode: SLERP interpolation at fractional step {exact_step:.5f}")
+        mapping = build_mapping_interpolated(poses, metadata, exact_step)
+    else:
+        print(f"Mode: integer snap (step={step})")
+        mapping = build_mapping(poses, metadata, step)
 
     fovs = [m['fov_deg'] for m in mapping]
     positions = np.array([[m['position']['x'], m['position']['y'], m['position']['z']]
@@ -127,16 +224,19 @@ def main():
         print("\nFirst 5 frames:")
         for m in mapping[:5]:
             p = m['position']
-            print(f"  frame {m['frame_index']:5d} → pose {m['pose_index']:5d}  "
+            t_str = f"  t={m['pose_t']:.3f}" if 'pose_t' in m else ''
+            print(f"  frame {m['frame_index']:5d} → pose {m['pose_index']:5d}{t_str}  "
                   f"({p['x']:8.1f}, {p['y']:8.1f}, {p['z']:7.1f})  fov={m['fov_deg']:.1f}°")
 
     output_data = {
-        'scene': args.scene,
-        'poses_file': args.poses,
-        'num_poses': len(poses),
-        'num_frames': num_frames,
-        'step': step,
-        'frames': mapping,
+        'scene':       args.scene,
+        'poses_file':  args.poses,
+        'num_poses':   len(poses),
+        'num_frames':  num_frames,
+        'step':        step,
+        'exact_step':  exact_step,
+        'interpolated': args.interpolate,
+        'frames':      mapping,
     }
 
     output = args.output or f"{args.scene}-mapping.json"
