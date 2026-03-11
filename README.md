@@ -105,29 +105,44 @@ Units are in centimeters by default.
 
 ```bash
 # 1. Parse .sav → poses JSON
-./parse_camera_poses.py western-flying.sav western-flying-poses.json
+uv run parse-camera-poses western-flying.sav western-flying-poses.json
 
 # 2. Match frames to poses → mapping JSON + SE3 pose array
-./match_poses.py western-flying-poses.json --scene western-flying
+uv run match-poses western-flying-poses.json --scene western-flying
 # outputs: western-flying-mapping.json, western-flying-poses.npy
 
 # Optional: use SLERP interpolation for sub-integer pose stride
-./match_poses.py western-flying-poses.json --scene western-flying --interpolate
+uv run match-poses western-flying-poses.json --scene western-flying --interpolate
 
 # 3. Visualise 3-D reconstruction in Rerun
-./reconstruct_3d.py western-flying-mapping.json --frames 50 --all-views
+uv run reconstruct-3d western-flying-mapping.json --frames 50 --all-views
 
 # Also show the full pose path (all poses, unrollable on a timeline)
-./reconstruct_3d.py western-flying-mapping.json --poses western-flying-poses.json
+uv run reconstruct-3d western-flying-mapping.json --poses western-flying-poses.json
 
 # Save to .rrd without spawning the viewer
-./reconstruct_3d.py western-flying-mapping.json --rrd out.rrd --no-viewer
+uv run reconstruct-3d western-flying-mapping.json --rrd out.rrd --no-viewer
 ```
 
-### Dependencies
+### Setup
 
 ```bash
-uv pip install numpy matplotlib opencv-python-headless openexr openexr-python rerun-sdk
+uv sync          # creates .venv and installs all dependencies
+```
+
+After that, scripts are available via `uv run`:
+
+```bash
+uv run parse-camera-poses recording.sav poses.json
+uv run match-poses poses.json --scene western-flying
+uv run reconstruct-3d mapping.json --all-views
+```
+
+Or use the justfile recipes which call `uv run` automatically:
+
+```bash
+just extract-poses western-flying
+just reconstruct western-flying
 ```
 
 ### Output Formats

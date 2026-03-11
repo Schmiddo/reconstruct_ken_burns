@@ -190,8 +190,11 @@ data/
 
 ## Environment
 
-- Python 3.14 in `.venv`; install packages with `uv pip install`
-- Installed: `numpy`, `matplotlib`, `opencv-python-headless`, `openexr`,
-  `openexr-python`, `rerun-sdk==0.30.1`
+- Python 3.14 in `.venv`; set up with `uv sync` (reads `pyproject.toml`)
+- Add packages with `uv add <pkg>` (updates pyproject.toml + lock file)
+- Installed: `numpy`, `opencv-python-headless`, `openexr`, `openexr-python`,
+  `rerun-sdk>=0.30`
+- Scripts are registered as console scripts; run via `uv run parse-camera-poses`,
+  `uv run match-poses`, `uv run reconstruct-3d`
 - `rr.set_time("pose", sequence=n)` for timeline scrubbing
 - `static=True` on `rr.log(...)` for permanent (non-timeline) entities
