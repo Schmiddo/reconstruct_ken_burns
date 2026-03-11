@@ -1,6 +1,6 @@
 # Ken Burns Camera Pose Extraction
 
-Reverse engineering the save file format used to store camera poses from an Unreal Engine 4 application.
+Reverse engineering the save file format used to store camera poses from an Unreal Engine 4 application as used in the [Ken Burns](https://github.com/sniklaus/3d-ken-burns) dataset, trying to figure out the poses used for rendering; see also [this issue](https://github.com/sniklaus/3d-ken-burns/issues/71).
 
 ## Overview
 
