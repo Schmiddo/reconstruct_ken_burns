@@ -10,19 +10,15 @@ an Unreal Engine 4.19 application ("Ken Burns" flythrough renderer).
 ```
 recording.sav  ──parse_camera_poses.py──►  <scene>-poses.json
                                                     │
-                                     ┌──────────────┤
-                                     ▼              ▼
-                            match_poses.py    export_poses.py
-                                     │              │
-                                     ▼              ▼
-                         <scene>-mapping.json   poses.npy
-                                     │
-                                     ▼
-                            reconstruct_3d.py  (→ Rerun viewer / .rrd / .ply)
+                                                    ▼
+                                            match_poses.py
+                                           /              \
+                                          ▼                ▼
+                              <scene>-mapping.json   <scene>-poses.npy
+                                          │
+                                          ▼
+                                 reconstruct_3d.py  (→ Rerun viewer / .rrd / .ply)
 ```
-
-Supporting / analysis scripts: `visualize_poses.py`, `analyze_dataset.py`,
-`find_stereo_pairs.py`.
 
 ---
 
@@ -68,9 +64,9 @@ All values are in **Unreal world space** (left-handed, cm).
 Key differences from poses JSON: field is `position` (not `translation`), and
 `fov_deg` is included.  `frame_index` is 1-based and matches filenames.
 
-### `poses.npy`  (output of `export_poses.py`)
-Shape `(N, 4, 4)` float64.  Camera-to-world SE3 matrices in the **right-handed
-display world** (after coordinate conversion — see below).
+### `<scene>-poses.npy`  (output of `match_poses.py`)
+Shape `(num_frames, 4, 4)` float64.  Camera-to-world SE3 matrices in the
+**right-handed display world** (after coordinate conversion — see below).
 
 ---
 
@@ -113,7 +109,7 @@ mirrored positions and/or backwards rotations.
       [1.,  0.,  0.],   # Rerun +Z = display-world +X  (forward)
   ])
   # world-to-Rerun-camera rotation:
-  R_world_rr = R_world_ue @ _UE_TO_RR_CAM.T
+  R_world_rr = R_world @ _UE_TO_RR_CAM.T
   ```
   Used only in `log_camera()` when logging a `rr.Pinhole` + `rr.Transform3D`.
 

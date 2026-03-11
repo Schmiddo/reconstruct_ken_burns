@@ -25,6 +25,40 @@ import numpy as np
 from pathlib import Path
 
 
+def quat_to_rotation_matrix(q: dict) -> np.ndarray:
+    """Unreal quaternion {x,y,z,w} → 3×3 rotation matrix (v_world = R @ v_cam_local)."""
+    x, y, z, w = q['x'], q['y'], q['z'], q['w']
+    n = np.sqrt(x*x + y*y + z*z + w*w)
+    x, y, z, w = x/n, y/n, z/n, w/n
+    return np.array([
+        [1 - 2*(y*y + z*z),     2*(x*y - w*z),     2*(x*z + w*y)],
+        [    2*(x*y + w*z), 1 - 2*(x*x + z*z),     2*(y*z - w*x)],
+        [    2*(x*z - w*y),     2*(y*z + w*x), 1 - 2*(x*x + y*y)],
+    ], dtype=np.float64)
+
+
+def mapping_to_se3(mapping: list[dict]) -> np.ndarray:
+    """
+    Convert mapping frames to (N, 4, 4) float64 SE3 camera-to-world matrices in
+    the right-handed display world (+X forward, +Y left, +Z up).
+
+    Conversion from Unreal left-handed world:
+        position:   negate Y
+        rotation:   H @ R @ H  (H = diag(1,−1,1) conjugation, keeps det = +1)
+    """
+    N = len(mapping)
+    out = np.eye(4, dtype=np.float64)[None].repeat(N, axis=0)
+    for i, frame in enumerate(mapping):
+        pos = frame['position']
+        center = np.array([pos['x'], -pos['y'], pos['z']], dtype=np.float64)
+        R = quat_to_rotation_matrix(frame['rotation'])
+        R[1, :] *= -1   # H @ R @ H conjugation:
+        R[:, 1] *= -1   #   negate row 1 then col 1 (det stays +1)
+        out[i, :3, :3] = R
+        out[i, :3,  3] = center
+    return out
+
+
 def load_poses(filepath: str) -> list[dict]:
     with open(filepath) as f:
         data = json.load(f)
@@ -243,6 +277,15 @@ def main():
     with open(output, 'w') as f:
         json.dump(output_data, f, indent=2)
     print(f"\nMapping saved → {output}")
+
+    # Export SE3 pose array alongside the mapping.
+    # Shape (num_frames, 4, 4) float64, camera-to-world in right-handed display world.
+    npy_stem = Path(output).stem.removesuffix('-mapping')
+    npy_path = Path(output).with_name(npy_stem + '-poses.npy')
+    se3 = mapping_to_se3(mapping)
+    np.save(npy_path, se3)
+    dets = np.linalg.det(se3[:, :3, :3])
+    print(f"SE3 poses saved  → {npy_path}  shape={se3.shape}  det(R)=[{dets.min():.6f}, {dets.max():.6f}]")
 
 
 if __name__ == "__main__":

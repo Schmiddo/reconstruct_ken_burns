@@ -105,10 +105,8 @@ def view_camera_pos(center_pos: np.ndarray, R: np.ndarray,
                     view: str, hbaseline: float, vbaseline: float) -> np.ndarray:
     """World-space position of one view's camera, offset from the rig centre."""
     hr, vr = VIEW_OFFSETS[view]
-    # In the right-handed display world, camera local +Y points world-LEFT,
-    # so visual right is −local-Y = R @ [0, −1, 0].
-    right_world = -(R @ [0., 1., 0.])
-    up_world    =   R @ [0., 0., 1.]
+    right_world = R @ [0., -1., 0.]   # local +Y is world-left; visual right = −local-Y
+    up_world    = R @ [0.,  0., 1.]
     return center_pos + hr * hbaseline * right_world + vr * vbaseline * up_world
 
 
@@ -233,7 +231,7 @@ def save_ply(path: str, pts: np.ndarray, col: np.ndarray) -> None:
 # Rerun logging
 # ---------------------------------------------------------------------------
 
-def log_camera(cam_pos: np.ndarray, R_world_ue: np.ndarray,
+def log_camera(cam_pos: np.ndarray, R_world: np.ndarray,
                entity: str, fov_deg: float,
                rgb: np.ndarray | None, arrow_length: float) -> None:
     """
@@ -242,7 +240,7 @@ def log_camera(cam_pos: np.ndarray, R_world_ue: np.ndarray,
     the 3-D view correctly.
     """
     # Camera forward in the right-handed display world: local +X.
-    forward_world = R_world_ue @ [1., 0., 0.]
+    forward_world = R_world @ [1., 0., 0.]
 
     rr.log(entity, rr.Arrows3D(
         origins=[cam_pos],
@@ -254,7 +252,7 @@ def log_camera(cam_pos: np.ndarray, R_world_ue: np.ndarray,
     if rgb is not None:
         H, W = rgb.shape[:2]
         f = float((W / 2.0) / np.tan(np.radians(fov_deg) / 2.0))
-        R_world_rr = R_world_ue @ _UE_TO_RR_CAM.T
+        R_world_rr = R_world @ _UE_TO_RR_CAM.T
         q_xyzw = rotation_matrix_to_quat_xyzw(R_world_rr)
         pinhole = f"{entity}/pinhole"
         rr.log(pinhole, rr.Transform3D(
@@ -272,7 +270,6 @@ def setup_rerun(scene: str) -> None:
             rrb.Spatial2DView(name="Camera image", origin="world/frames"),
             column_shares=[3, 1],
         ),
-        # collapse_panels=False keeps the entity tree and blueprint panels visible
     )
     rr.init(f"kenburns/{scene}", spawn=True, default_blueprint=blueprint)
     # Right-handed, Z-up: matches our display world (+X forward, +Y left, +Z up).
