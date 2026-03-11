@@ -2,6 +2,12 @@
 
 Reverse engineering the save file format used to store camera poses from an Unreal Engine 4 application as used in the [Ken Burns](https://github.com/sniklaus/3d-ken-burns) dataset, trying to figure out the poses used for rendering; see also [this issue](https://github.com/sniklaus/3d-ken-burns/issues/71).
 
+To easily run the code, use [uv](https://docs.astral.sh/uv/) and [just](https://github.com/casey/just), link `data` to your copy of the dataset, and place the `.sav` file in the root of this repo.
+Then run eg `just reconstruct western-flying` and you should see a rerun visualization of the scene.
+The blue line indicates the poses of the savegame, the red line connects the poses used for the reconstruction.
+
+The rest of this readme is AI-generated and quite verbose, but might still be helpful so I'm leaving it as-is.
+
 ## Overview
 
 The `.sav` files contain camera transform history data captured from an Unreal Engine 4.19 application. The goal is to extract the camera poses (position and rotation) for each frame.
