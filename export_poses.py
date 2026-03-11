@@ -39,6 +39,8 @@ def quat_to_rotation_matrix(q: dict) -> np.ndarray:
     (v_world = R @ v_camera_local).
     """
     x, y, z, w = q['x'], q['y'], q['z'], q['w']
+    n = np.sqrt(x*x + y*y + z*z + w*w)
+    x, y, z, w = x/n, y/n, z/n, w/n
     return np.array([
         [1 - 2*(y*y + z*z),     2*(x*y - w*z),     2*(x*z + w*y)],
         [    2*(x*y + w*z), 1 - 2*(x*x + z*z),     2*(y*z - w*x)],
